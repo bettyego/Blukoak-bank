@@ -52,7 +52,7 @@ const Login = () => {
     };
 
     // Simulate API call
-    setTimeout(() => {
+    setTimeout(async () => {
       const user = users[formData.email.toLowerCase()];
 
       if (!user) {
