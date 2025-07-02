@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import DashboardCard, { BalanceCard, TransactionCard, SavingsCard, CreditCard } from '../components/DashboardCard';
+import { useBanking } from '../context/BankingContext';
 import { 
   FaBars, 
   FaEye, 
@@ -19,25 +20,32 @@ const Dashboard = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [balanceVisible, setBalanceVisible] = useState(true);
 
-  // Get user info from localStorage
-  const userInfo = JSON.parse(localStorage.getItem('blueoak_user') || '{}');
-  const isAdmin = userInfo.role === 'admin' || userInfo.role === 'manager';
+  // Get banking data from context
+  const {
+    user,
+    accounts,
+    transactions,
+    loading,
+    getAccountByType,
+    getRecentTransactions,
+    getTotalBalance,
+    getMonthlySpending
+  } = useBanking();
 
-  // Mock data
-  const accountData = {
-    checking: 12450.75,
-    savings: 8750.25,
-    creditLimit: 5000,
-    creditUsed: 1250
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+
+  // Get real account data
+  const checkingAccount = getAccountByType('checking');
+  const savingsAccount = getAccountByType('savings');
+  const recentTransactions = getRecentTransactions(5);
+  const totalBalance = getTotalBalance();
+  const monthlySpending = getMonthlySpending();
+
+  // Credit card data (still mock for now)
+  const creditData = {
+    limit: 5000,
+    used: 1250
   };
-
-  const recentTransactions = [
-    { id: 1, description: 'Coffee Shop', amount: -4.50, date: '2024-01-15', type: 'debit' },
-    { id: 2, description: 'Salary Deposit', amount: 3500.00, date: '2024-01-15', type: 'credit' },
-    { id: 3, description: 'Grocery Store', amount: -87.32, date: '2024-01-14', type: 'debit' },
-    { id: 4, description: 'Online Transfer', amount: -200.00, date: '2024-01-14', type: 'transfer' },
-    { id: 5, description: 'ATM Withdrawal', amount: -100.00, date: '2024-01-13', type: 'withdrawal' }
-  ];
 
   const quickActions = isAdmin ? [
     { icon: FaExchangeAlt, label: 'Manage Transfers', color: 'blue', link: '/transfer' },
@@ -93,7 +101,7 @@ const Dashboard = () => {
           {/* Welcome Section */}
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              Welcome back, {userInfo.name || 'User'}! 👋
+              Welcome back, {user?.name || 'User'}! 👋
               {isAdmin && <span className="text-lg text-blue-600 ml-2">(Admin)</span>}
             </h2>
             <p className="text-gray-600">
@@ -102,6 +110,11 @@ const Dashboard = () => {
                 : "Here's what's happening with your accounts today."
               }
             </p>
+            {loading && (
+              <div className="text-blue-600 text-sm mt-2">
+                Loading your account data...
+              </div>
+            )}
           </div>
 
           {/* Account Cards */}
@@ -117,13 +130,13 @@ const Dashboard = () => {
                 </button>
               </div>
               <p className="text-3xl font-bold text-gray-900">
-                {balanceVisible ? `$${accountData.checking.toLocaleString()}` : '••••••'}
+                {balanceVisible ? `$${checkingAccount?.balance?.toLocaleString() || '0.00'}` : '••••••'}
               </p>
-              <p className="text-sm text-green-600 mt-2">+2.5% from last month</p>
+              <p className="text-sm text-green-600 mt-2">Real-time balance</p>
             </div>
 
-            <SavingsCard amount={accountData.savings} />
-            <CreditCard limit={accountData.creditLimit} used={accountData.creditUsed} />
+            <SavingsCard amount={savingsAccount?.balance || 0} />
+            <CreditCard limit={creditData.limit} used={creditData.used} />
             <TransactionCard count={recentTransactions.length} />
           </div>
 
@@ -159,13 +172,13 @@ const Dashboard = () => {
                 </Link>
               </div>
               <div className="space-y-4">
-                {recentTransactions.slice(0, 5).map((transaction) => (
+                {recentTransactions.length > 0 ? recentTransactions.map((transaction) => (
                   <div key={transaction.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
                     <div className="flex items-center">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center mr-3 ${
-                        transaction.type === 'credit' ? 'bg-green-100' : 'bg-red-100'
+                        transaction.amount > 0 ? 'bg-green-100' : 'bg-red-100'
                       }`}>
-                        {transaction.type === 'credit' ? (
+                        {transaction.amount > 0 ? (
                           <FaArrowDown className="text-green-600" />
                         ) : (
                           <FaArrowUp className="text-red-600" />
@@ -173,7 +186,9 @@ const Dashboard = () => {
                       </div>
                       <div>
                         <p className="font-medium text-gray-900">{transaction.description}</p>
-                        <p className="text-sm text-gray-500">{transaction.date}</p>
+                        <p className="text-sm text-gray-500">
+                          {new Date(transaction.date).toLocaleDateString()}
+                        </p>
                       </div>
                     </div>
                     <p className={`font-semibold ${
@@ -182,7 +197,11 @@ const Dashboard = () => {
                       {transaction.amount > 0 ? '+' : ''}${Math.abs(transaction.amount).toFixed(2)}
                     </p>
                   </div>
-                ))}
+                )) : (
+                  <div className="text-center text-gray-500 py-8">
+                    No transactions yet
+                  </div>
+                )}
               </div>
             </div>
 
@@ -193,18 +212,18 @@ const Dashboard = () => {
                 <div className="flex justify-between items-center py-3 border-b border-gray-100">
                   <span className="text-gray-600">Total Balance</span>
                   <span className="font-semibold text-gray-900">
-                    ${(accountData.checking + accountData.savings).toLocaleString()}
+                    ${totalBalance.toLocaleString()}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-3 border-b border-gray-100">
                   <span className="text-gray-600">Available Credit</span>
                   <span className="font-semibold text-gray-900">
-                    ${(accountData.creditLimit - accountData.creditUsed).toLocaleString()}
+                    ${(creditData.limit - creditData.used).toLocaleString()}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-3 border-b border-gray-100">
                   <span className="text-gray-600">Monthly Spending</span>
-                  <span className="font-semibold text-red-600">-$1,247.82</span>
+                  <span className="font-semibold text-red-600">-${monthlySpending.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center py-3">
                   <span className="text-gray-600">Savings Goal Progress</span>

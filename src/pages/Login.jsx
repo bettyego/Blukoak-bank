@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FaEye, FaEyeSlash, FaUser, FaLock } from 'react-icons/fa';
 import Swal from 'sweetalert2';
+import { useBanking } from '../context/BankingContext';
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -11,6 +12,7 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useBanking();
 
   const handleChange = (e) => {
     setFormData({
@@ -75,13 +77,15 @@ const Login = () => {
         return;
       }
 
-      // Store user info in localStorage for demo purposes
-      localStorage.setItem('blueoak_user', JSON.stringify({
+      // Use banking context to login
+      const userData = {
         email: formData.email,
         name: user.name,
         role: user.role,
         loginTime: new Date().toISOString()
-      }));
+      };
+
+      await login(formData.email, userData);
 
       Swal.fire({
         icon: 'success',

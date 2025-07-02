@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import { FaBars, FaArrowRight, FaUser, FaDollarSign, FaCommentAlt, FaHistory } from 'react-icons/fa';
 import Swal from 'sweetalert2';
+import { useBanking } from '../context/BankingContext';
 
 const Transfer = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [transferData, setTransferData] = useState({
-    fromAccount: 'checking',
+    fromAccount: '',
     toAccount: '',
     recipient: '',
     amount: '',
@@ -16,10 +17,23 @@ const Transfer = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const accounts = [
-    { id: 'checking', name: 'Checking Account', balance: 12450.75, number: '****1234' },
-    { id: 'savings', name: 'Savings Account', balance: 8750.25, number: '****5678' }
-  ];
+  // Get banking data from context
+  const {
+    accounts,
+    transferMoney,
+    getAccountBalance,
+    getRecentTransactions
+  } = useBanking();
+
+  // Set default from account when accounts load
+  React.useEffect(() => {
+    if (accounts.length > 0 && !transferData.fromAccount) {
+      setTransferData(prev => ({
+        ...prev,
+        fromAccount: accounts[0].id
+      }));
+    }
+  }, [accounts, transferData.fromAccount]);
 
   const recentContacts = [
     { id: 1, name: 'John Smith', email: 'john@email.com', lastTransfer: '$500.00' },
@@ -27,11 +41,8 @@ const Transfer = () => {
     { id: 3, name: 'Mike Wilson', email: 'mike@email.com', lastTransfer: '$100.00' }
   ];
 
-  const recentTransfers = [
-    { id: 1, recipient: 'John Smith', amount: 500.00, date: '2024-01-15', status: 'completed' },
-    { id: 2, recipient: 'Savings Account', amount: 1000.00, date: '2024-01-14', status: 'completed' },
-    { id: 3, recipient: 'Sarah Johnson', amount: 250.00, date: '2024-01-13', status: 'pending' }
-  ];
+  // Get real recent transfers
+  const recentTransfers = getRecentTransactions(3).filter(txn => txn.type === 'transfer');
 
   const handleChange = (e) => {
     setTransferData({
@@ -42,8 +53,10 @@ const Transfer = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!transferData.amount || !transferData.recipient) {
+
+    // Validation
+    if (!transferData.amount || (!transferData.recipient && transferData.transferType !== 'internal') ||
+        (!transferData.toAccount && transferData.transferType === 'internal')) {
       Swal.fire({
         icon: 'error',
         title: 'Missing Information',
@@ -53,7 +66,8 @@ const Transfer = () => {
       return;
     }
 
-    if (parseFloat(transferData.amount) <= 0) {
+    const amount = parseFloat(transferData.amount);
+    if (amount <= 0) {
       Swal.fire({
         icon: 'error',
         title: 'Invalid Amount',
@@ -63,12 +77,13 @@ const Transfer = () => {
       return;
     }
 
-    const fromAccount = accounts.find(acc => acc.id === transferData.fromAccount);
-    if (parseFloat(transferData.amount) > fromAccount.balance) {
+    // Check balance
+    const currentBalance = getAccountBalance(transferData.fromAccount);
+    if (amount > currentBalance) {
       Swal.fire({
         icon: 'error',
         title: 'Insufficient Funds',
-        text: 'You do not have enough balance for this transfer.',
+        text: `You only have $${currentBalance.toFixed(2)} available in this account.`,
         confirmButtonColor: '#3B82F6'
       });
       return;
@@ -76,29 +91,51 @@ const Transfer = () => {
 
     setIsLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Process the actual transfer
+      const toAccountId = transferData.transferType === 'internal' ? transferData.toAccount : null;
+      const description = transferData.memo ||
+        (transferData.transferType === 'internal' ? 'Internal Transfer' :
+         transferData.transferType === 'external' ? `Transfer to ${transferData.recipient}` :
+         `Transfer to ${transferData.recipient}`);
+
+      await transferMoney(
+        transferData.fromAccount,
+        toAccountId,
+        amount,
+        description,
+        transferData.recipient
+      );
+
       Swal.fire({
         icon: 'success',
         title: 'Transfer Successful!',
-        text: `$${parseFloat(transferData.amount).toFixed(2)} has been transferred successfully.`,
+        text: `$${amount.toFixed(2)} has been transferred successfully.`,
         confirmButtonColor: '#10B981',
         timer: 3000,
         showConfirmButton: false
       });
-      
+
       // Reset form
       setTransferData({
-        fromAccount: 'checking',
+        fromAccount: accounts[0]?.id || '',
         toAccount: '',
         recipient: '',
         amount: '',
         memo: '',
         transferType: 'internal'
       });
-      
+
+    } catch (error) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Transfer Failed',
+        text: error.message || 'An error occurred while processing the transfer.',
+        confirmButtonColor: '#3B82F6'
+      });
+    } finally {
       setIsLoading(false);
-    }, 2000);
+    }
   };
 
   const toggleSidebar = () => {
@@ -186,7 +223,7 @@ const Transfer = () => {
                       >
                         {accounts.map((account) => (
                           <option key={account.id} value={account.id}>
-                            {account.name} ({account.number}) - ${account.balance.toLocaleString()}
+                            {account.account_type.charAt(0).toUpperCase() + account.account_type.slice(1)} Account ({account.account_number}) - ${account.balance.toLocaleString()}
                           </option>
                         ))}
                       </select>
@@ -211,7 +248,7 @@ const Transfer = () => {
                             .filter(account => account.id !== transferData.fromAccount)
                             .map((account) => (
                               <option key={account.id} value={account.id}>
-                                {account.name} ({account.number})
+                                {account.account_type.charAt(0).toUpperCase() + account.account_type.slice(1)} Account ({account.account_number})
                               </option>
                             ))}
                         </select>
@@ -353,14 +390,14 @@ const Transfer = () => {
                     <FaHistory className="text-gray-400" />
                   </div>
                   <div className="space-y-3">
-                    {recentTransfers.map((transfer) => (
+                    {recentTransfers.length > 0 ? recentTransfers.map((transfer) => (
                       <div key={transfer.id} className="flex items-center justify-between p-3 border-b border-gray-100 last:border-b-0">
                         <div>
-                          <p className="font-medium text-gray-900">{transfer.recipient}</p>
-                          <p className="text-sm text-gray-500">{transfer.date}</p>
+                          <p className="font-medium text-gray-900">{transfer.description}</p>
+                          <p className="text-sm text-gray-500">{new Date(transfer.date).toLocaleDateString()}</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-semibold text-gray-900">${transfer.amount.toFixed(2)}</p>
+                          <p className="font-semibold text-gray-900">${Math.abs(transfer.amount).toFixed(2)}</p>
                           <p className={`text-xs ${
                             transfer.status === 'completed' ? 'text-green-600' : 'text-yellow-600'
                           }`}>
@@ -368,7 +405,11 @@ const Transfer = () => {
                           </p>
                         </div>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="text-center text-gray-500 py-4">
+                        No recent transfers
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
